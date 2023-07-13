@@ -1,0 +1,350 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Crypto Price Dashboard</title>
+  <style>
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+
+    th, td {
+      padding: 8px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+
+    button {
+      padding: 5px 10px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Crypto Price Dashboard</h1>
+  <input id="tickerSymbol" type="text" placeholder="Enter ticker symbol (without USDT)" style="margin-bottom: 10px;">
+  <button onclick="addRow()">Fetch Data</button>
+  <table id="cryptoTable">
+    <tr>
+      <th>Cryptocurrency</th>
+      <th>Price (USDT)</th>
+      <th>Daily Volume</th>
+      <th>Conversion Line (9)</th>
+      <th>Base Line (26)</th>
+      <th>Leading Span A (26)</th>
+      <th>Leading Span B (52)</th>
+      <th>Lagging Span (26)</th>
+      <th>Cloud Signal</th>
+      <th>Short EMA (12)</th>
+      <th>Long EMA (26)</th>
+      <th>PPO (12, 26)</th>
+      <th>RSI (14)</th> <!-- New column for RSI -->
+    </tr>
+    <tr id="btcRow">
+      <td>BTCUSDT</td>
+      <td id="btcPrice">Loading...</td>
+      <td id="btcVolume">Loading...</td>
+      <td id="btcConversionLine">Calculating...</td>
+      <td id="btcBaseLine">Calculating...</td>
+      <td id="btcLeadingSpanA">Calculating...</td>
+      <td id="btcLeadingSpanB">Calculating...</td>
+      <td id="btcLaggingSpan">Calculating...</td>
+      <td id="btcCloudSignal">Calculating...</td>
+      <td id="btcShortEMA">Calculating...</td>
+      <td id="btcLongEMA">Calculating...</td>
+      <td id="btcPPO">Calculating...</td>
+      <td id="btcRSI">Calculating...</td> <!-- New cell for RSI -->
+    </tr>
+  </table>
+  <button id="refreshButton" onclick="refreshAllData()">Refresh</button>
+  <script>
+    const tickerSymbols = ['BTC'];
+
+    async function fetchData(url) {
+      try {
+        const response = await fetch(url);
+        const data = await response.json();
+        return data;
+      } catch (error) {
+        console.log('Error:', error);
+        throw error;
+      }
+    }
+
+    function calculateIchimokuCloud(data, conversionPeriod, basePeriod, leadingSpanBPeriod, laggingSpanPeriod) {
+      const conversionLine = [];
+      const baseLine = [];
+      const leadingSpanA = [];
+      const leadingSpanB = [];
+      const laggingSpan = [];
+
+      for (let i = 0; i < data.length; i++) {
+        const high = data[i].high;
+        const low = data[i].low;
+        const close = data[i].close;
+
+        // Calculate Conversion Line
+        if (i >= conversionPeriod - 1) {
+          let highs = data.slice(i - conversionPeriod + 1, i + 1).map(candle => candle.high);
+          let lows = data.slice(i - conversionPeriod + 1, i + 1).map(candle => candle.low);
+          let conversionLineValue = (Math.max(...highs) + Math.min(...lows)) / 2;
+          conversionLine.push(conversionLineValue);
+        } else {
+          conversionLine.push(NaN);
+        }
+
+        // Calculate Base Line
+        if (i >= basePeriod - 1) {
+          let highs = data.slice(i - basePeriod + 1, i + 1).map(candle => candle.high);
+          let lows = data.slice(i - basePeriod + 1, i + 1).map(candle => candle.low);
+          let baseLineValue = (Math.max(...highs) + Math.min(...lows)) / 2;
+          baseLine.push(baseLineValue);
+        } else {
+          baseLine.push(NaN);
+        }
+
+        // Calculate Leading Span A
+        if (i >= basePeriod) {
+          const leadingSpanAValue = (conversionLine[i] + baseLine[i]) / 2;
+          leadingSpanA.push(leadingSpanAValue);
+        } else {
+          leadingSpanA.push(NaN);
+        }
+
+        // Calculate Leading Span B
+        if (i >= leadingSpanBPeriod - 1) {
+          let highs = data.slice(i - leadingSpanBPeriod + 1, i + 1).map(candle => candle.high);
+          let lows = data.slice(i - leadingSpanBPeriod + 1, i + 1).map(candle => candle.low);
+          const leadingSpanBValue = (Math.max(...highs) + Math.min(...lows)) / 2;
+          leadingSpanB.push(leadingSpanBValue);
+        } else {
+          leadingSpanB.push(NaN);
+        }
+
+        // Calculate Lagging Span
+        if (i >= laggingSpanPeriod) {
+          const laggingSpanValue = close;
+          laggingSpan.push(laggingSpanValue);
+        } else {
+          laggingSpan.push(NaN);
+        }
+      }
+
+      return {
+        conversionLine,
+        baseLine,
+        leadingSpanA,
+        leadingSpanB,
+        laggingSpan
+      };
+    }
+
+    function calculatePPO(data, shortPeriod, longPeriod) {
+      const shortEMA = calculateEMA(data, shortPeriod);
+      const longEMA = calculateEMA(data, longPeriod);
+
+      const PPO = [];
+      for (let i = 0; i < data.length; i++) {
+        const ppoValue = ((shortEMA[i] - longEMA[i]) / longEMA[i]) * 100;
+        PPO.push(ppoValue);
+      }
+
+      return PPO;
+    }
+
+
+
+
+   function calculateEMA(data, period) {
+  const ema = [];
+  const multiplier = 2 / (period + 1);
+
+  for (let i = 0; i < data.length; i++) {
+    if (i === 0) {
+      ema.push(data[i].close);
+    } else {
+      const close = data[i].close;
+      const prevEMA = ema[i - 1];
+      const currentEMA = (close - prevEMA) * multiplier + prevEMA;
+      ema.push(currentEMA);
+    }
+  }
+
+  return ema;
+}
+
+function calculateRSI(data, period) {
+      const rsi = [];
+      const gainHistory = [];
+      const lossHistory = [];
+
+      for (let i = 0; i < data.length; i++) {
+        if (i === 0) {
+          rsi.push(NaN);
+          gainHistory.push(0);
+          lossHistory.push(0);
+        } else {
+          const currentClose = data[i].close;
+          const prevClose = data[i - 1].close;
+          const priceChange = currentClose - prevClose;
+
+          if (priceChange > 0) {
+            gainHistory.push(priceChange);
+            lossHistory.push(0);
+          } else {
+            gainHistory.push(0);
+            lossHistory.push(-priceChange);
+          }
+
+          if (i >= period) {
+            const avgGain = calculateAverage(gainHistory.slice(i - period, i));
+            const avgLoss = calculateAverage(lossHistory.slice(i - period, i));
+            const relativeStrength = avgGain / avgLoss;
+            const currentRSI = 100 - (100 / (1 + relativeStrength));
+            rsi.push(currentRSI);
+          } else {
+            rsi.push(NaN);
+          }
+        }
+      }
+
+      return rsi;
+    }
+
+    function calculateAverage(data) {
+      const sum = data.reduce((acc, val) => acc + val, 0);
+      return sum / data.length;
+    }
+
+
+    async function addRow() {
+      const tickerSymbol = document.getElementById('tickerSymbol').value.toUpperCase();
+      const rowId = tickerSymbol.replace(/\W/g, ''); // Create valid id by removing non-alphanumeric characters
+
+      if (document.getElementById(rowId + 'Row')) {
+        alert('Data for this ticker symbol already exists.');
+        return;
+      }
+
+      const newRow = document.createElement('tr');
+      newRow.id = rowId + 'Row';
+
+      newRow.innerHTML = `
+        <td>${tickerSymbol}USDT</td>
+        <td id="${rowId}Price">Loading...</td>
+        <td id="${rowId}Volume">Loading...</td>
+        <td id="${rowId}ConversionLine">Calculating...</td>
+        <td id="${rowId}BaseLine">Calculating...</td>
+        <td id="${rowId}LeadingSpanA">Calculating...</td>
+        <td id="${rowId}LeadingSpanB">Calculating...</td>
+        <td id="${rowId}LaggingSpan">Calculating...</td>
+        <td id="${rowId}CloudSignal">Calculating...</td>
+        <td id="${rowId}ShortEMA">Calculating...</td>
+        <td id="${rowId}LongEMA">Calculating...</td>
+        <td id="${rowId}PPO">Calculating...</td>
+      `;
+
+      document.getElementById('cryptoTable').appendChild(newRow);
+      refreshData(tickerSymbol, rowId);
+      tickerSymbols.push(tickerSymbol); // Add the new ticker symbol to the tickerSymbols array
+    }
+
+    async function fetchHistoricalData(symbol) {
+      const response = await fetch(`https://api.binance.com/api/v3/klines?symbol=${symbol}USDT&interval=1d&limit=500`);
+      const data = await response.json();
+      return data.map(entry => ({
+        openTime: entry[0],
+        open: parseFloat(entry[1]),
+        high: parseFloat(entry[2]),
+        low: parseFloat(entry[3]),
+        close: parseFloat(entry[4]),
+        volume: parseFloat(entry[5]),
+        closeTime: entry[6],
+        quoteAssetVolume: parseFloat(entry[7]),
+        numberOfTrades: entry[8],
+        takerBuyBaseAssetVolume: parseFloat(entry[9]),
+        takerBuyQuoteAssetVolume: parseFloat(entry[10]),
+        ignore: entry[11]
+      }));
+    }
+
+    async function refreshData(tickerSymbol = 'BTC', rowId = 'btc') {
+      const priceElement = document.getElementById(rowId + 'Price');
+      const volumeElement = document.getElementById(rowId + 'Volume');
+      const ichimokuElements = {
+        conversionLine: document.getElementById(rowId + 'ConversionLine'),
+        baseLine: document.getElementById(rowId + 'BaseLine'),
+        leadingSpanA: document.getElementById(rowId + 'LeadingSpanA'),
+        leadingSpanB: document.getElementById(rowId + 'LeadingSpanB'),
+        laggingSpan: document.getElementById(rowId + 'LaggingSpan'),
+        cloudSignal: document.getElementById(rowId + 'CloudSignal'),
+        shortEMA: document.getElementById(rowId + 'ShortEMA'),
+        longEMA: document.getElementById(rowId + 'LongEMA'),
+        ppo: document.getElementById(rowId + 'PPO'),
+        rsi: document.getElementById(rowId + 'RSI') // New element for RSI
+      };
+
+      priceElement.textContent = 'Loading...';
+      volumeElement.textContent = 'Loading...';
+      Object.values(ichimokuElements).forEach(elem => elem.textContent = 'Calculating...');
+
+      try {
+        const historicalData = await fetchHistoricalData(tickerSymbol);
+        const priceData = historicalData[historicalData.length - 1];
+        const volumeData = historicalData.reduce((acc, curr) => acc + curr.volume, 0);
+
+        const price = priceData.close;
+        priceElement.textContent = price.toFixed(2);
+
+        volumeElement.textContent = volumeData.toLocaleString();
+
+        const ichimokuData = calculateIchimokuCloud(historicalData, 9, 26, 52, 26);
+        console.log(`${tickerSymbol} Ichimoku Cloud data:`, ichimokuData);
+
+        for (const key in ichimokuData) {
+          ichimokuElements[key].textContent = ichimokuData[key][ichimokuData[key].length - 1].toFixed(2);
+        }
+
+        const ppoData = calculatePPO(historicalData, 12, 26);
+        const shortEMAData = calculateEMA(historicalData, 12);
+        const longEMAData = calculateEMA(historicalData, 26);
+        const ppoValue = ppoData[ppoData.length - 1].toFixed(2);
+        const shortEMAValue = shortEMAData[shortEMAData.length - 1].toFixed(2);
+        const longEMAValue = longEMAData[longEMAData.length - 1].toFixed(2);
+
+        ichimokuElements.shortEMA.textContent = shortEMAValue;
+        ichimokuElements.longEMA.textContent = longEMAValue;
+        ichimokuElements.ppo.textContent = ppoValue;
+
+        const rsiData = calculateRSI(historicalData, 14);
+        const rsiValue = rsiData[rsiData.length - 1].toFixed(2);
+        ichimokuElements.rsi.textContent = rsiValue; // Update the RSI value in the table
+
+        const leadingSpanA = ichimokuData.leadingSpanA;
+        const leadingSpanB = ichimokuData.leadingSpanB;
+        const cloudSignal = leadingSpanA[leadingSpanA.length - 1] > leadingSpanB[leadingSpanB.length - 1] ? 'Bullish' : 'Bearish';
+        ichimokuElements.cloudSignal.textContent = cloudSignal;
+      } catch (error) {
+        console.log('Error:', error);
+      }
+    }
+
+    async function refreshAllData() {
+      const defaultSymbol = 'BTC';
+      const defaultRowId = defaultSymbol.toLowerCase();
+
+      // Refresh data for the default 'BTC' symbol and row
+      refreshData(defaultSymbol, defaultRowId);
+
+      // Loop through all ticker symbols and refresh data for each one
+      for (const tickerSymbol of tickerSymbols) {
+        const rowId = tickerSymbol.replace(/\W/g, ''); // Create valid id by removing non-alphanumeric characters
+        refreshData(tickerSymbol, rowId);
+      }
+    }
+
+    // Initial data load for BTC
+    refreshData();
+  </script>
+</body>
+</html>
